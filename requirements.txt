@@ -1,0 +1,18 @@
+# Core scientific & ML stack (tested on Python 3.11)
+numpy>=1.26.0
+pandas>=2.2.0
+scipy>=1.12.0
+scikit-learn>=1.4.0
+tensorflow>=2.16.0
+joblib>=1.3.0
+
+# Database & FlightGear bridge / web dashboard
+psycopg2-binary>=2.9.9
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# 3D structural visualization & manuscript figure generation
+pyvista>=0.43.0
+pyvistaqt>=0.11.0
+matplotlib>=3.8.0
+seaborn>=0.13.0

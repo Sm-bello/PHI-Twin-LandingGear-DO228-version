@@ -1,0 +1,25 @@
+Metric,Value
+Version,V16.1 — tireFriction + polytropicK + orificeB + sealFriction
+Certification,CS-23.473 JAR-23 Commuter (Do228-212)
+Hard Landing Threshold (m/s),3.05
+Hard Landing Threshold (g),1.8
+Total Samples,9500
+Maintenance Triggers,9500
+Trigger Rate (%),100
+Fixed-Interval Cost (USD),665000
+CBM Optimized Cost (USD),332500000
+Savings (USD),-331835000
+Savings (%),-49900
+AOG Prevented (Class10 Sev4),500
+AOG Prevention Value (USD),14000000
+Mode Damage Class0,0
+Mode Damage Class1,0
+Mode Damage Class2,0
+Mode Damage Class3,0
+Mode Damage Class4,0
+Mode Damage Class5,0
+Mode Damage Class6,0
+Mode Damage Class7,0
+Mode Damage Class8,0
+Mode Damage Class9,0
+Mode Damage Class10,0

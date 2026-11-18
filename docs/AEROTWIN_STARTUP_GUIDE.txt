@@ -1,0 +1,297 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                       AEROTWIN v2.1 FULL STACK STARTUP GUIDE                 ║
+║                  Dornier 228-212 Landing Gear PHM System                      ║
+║                                                                               ║
+║  This guide brings up the complete system from scratch:                       ║
+║    1. PostgreSQL database (single schema script)                              ║
+║    2. FlightGear + fg_connect.py (telemetry source)                           ║
+║    3. MATLAB physics simulator (Prismatic Joint model)                        ║
+║    4. phi_fleet_server.py (supervisor dashboard)                              ║
+║    5. Verification & monitoring                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════════
+  PREREQUISITE: PostgreSQL is installed and running
+═══════════════════════════════════════════════════════════════════════════════
+
+Verify PostgreSQL is live:
+  psql -U postgres -c "SELECT version();"
+
+If it fails, start PostgreSQL service (Windows):
+  net start postgresql-x64-XX  (replace XX with your version)
+
+Or on WSL2:
+  sudo service postgresql start
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  STEP 1: CREATE DATABASE SCHEMA (ONE-TIME)
+═══════════════════════════════════════════════════════════════════════════════
+
+This runs the complete schema setup from aerotwin_schema.sql, which creates:
+  ✓ telemetry              ← FG writes 20 fields at 20Hz
+  ✓ gear_commands          ← Autonomous decisions at 2Hz
+  ✓ touchdown_events       ← Landing markers (for MATLAB polling)
+  ✓ flight_diagnostics     ← AI health predictions + CS-23 checks
+  ✓ matlab_physics_output  ← Prismatic Joint physics + handshake flags
+
+Command:
+  psql -U postgres -d project_db -f aerotwin_schema.sql
+
+Expected output:
+  ✅ AEROTWIN DATABASE SCHEMA CREATED
+  CREATE INDEX
+  CREATE INDEX
+  ... (total ~12 indexes)
+
+If you get "database does not exist", create it first:
+  psql -U postgres -c "CREATE DATABASE project_db;"
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  STEP 2: START FLIGHTGEAR + TELEMETRY BRIDGE (Terminal 1)
+═══════════════════════════════════════════════════════════════════════════════
+
+Terminal 1 — Start FlightGear with the generic protocol flags:
+(First copy flightgear/aerotwin_proto.xml into <fgdata>/Protocol/)
+
+  "C:\Program Files\FlightGear 2024.1\bin\fgfs.exe" ^
+    --fg-root="<PATH_TO_FGDATA>" ^
+    --aircraft=Do228 ^
+    --airport=DNAA ^
+    --generic=socket,out,20,localhost,15000,udp,aerotwin_proto ^
+    --generic=socket,in,5,,15001,udp,aerotwin_proto ^
+    --telnet=5501
+
+Wait for FlightGear to load (about 30 seconds). You should see no errors about
+the protocol in the black console window.
+
+Terminal 2 — Start the telemetry bridge (in a separate conda env):
+
+  cd <PATH_TO_REPO>
+  conda activate aerospace
+  python fg_connect.py
+
+Expected output after FG is running:
+  ╔══════════════════════════════════════════════════════════════════════╗
+  ║  PHI-FLEET  ·  fg_bridge.py  ·  FlightGear → PostgreSQL             ║
+  ...
+  [DB] Connected to PostgreSQL (attempt 1)
+  [DB] Schema verified / updated ✓
+  [UDP-RX] Listening on UDP port 15000 ← FlightGear
+  [UDP-TX] Sending gear commands to FlightGear port 15001
+  [BRIDGE] All threads running. Press Ctrl+C to stop.
+  
+  [GROUND      ] Alt:      7ft  GS:  0.0kt  Sink: 0.000m/s  Comp:0.2601ft  WOW  GEAR:DOWN  20Hz
+
+Once you see telemetry with "20Hz" rate, FlightGear is streaming correctly.
+
+Verify in PostgreSQL (new terminal):
+  psql -U postgres -d project_db
+  SELECT COUNT(*) FROM telemetry;          -- should be increasing
+  SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT 1 \gx;  -- latest row
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  STEP 3: START MATLAB PHYSICS SIMULATOR (Terminal 3) [OPTIONAL FOR NOW]
+═══════════════════════════════════════════════════════════════════════════════
+
+MATLAB monitors the touchdown_events table. When FG detects a landing (WOW→true),
+a row appears in touchdown_events. MATLAB's launch_twin.m polls this table:
+  1. Reads touchdown event (sink_rate, compression, mass)
+  2. Runs Simscape Prismatic Joint sim
+  3. Writes results to matlab_physics_output with ready_for_ai=TRUE
+  4. Waits for Python AI to read and set ai_consumed=TRUE
+
+Terminal 3 — Start MATLAB:
+
+  matlab -nodisplay -r "cd <PATH_TO_REPO>; launch_twin; exit"
+
+Or start MATLAB GUI and run:
+  >> cd <PATH_TO_REPO>
+  >> launch_twin
+
+Expected behavior:
+  – MATLAB waits for touchdown_events to appear
+  – When you land in FlightGear, MATLAB detects it and simulates
+  – Results appear in matlab_physics_output table
+  – Python AI (next step) reads them
+
+Verify in PostgreSQL:
+  SELECT COUNT(*) FROM matlab_physics_output;  -- grows after each landing
+  SELECT ready_for_ai, ai_consumed FROM matlab_physics_output ORDER BY ts DESC LIMIT 1;
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  STEP 4: START SUPERVISOR DASHBOARD (Terminal 4)
+═══════════════════════════════════════════════════════════════════════════════
+
+phi_fleet_server.py reads from PostgreSQL and broadcasts to supervisors over
+WebSocket at 1Hz (once per second).
+
+Terminal 4:
+  cd <PATH_TO_REPO>
+  conda activate aerospace
+  python phi_fleet_server.py
+  # Or use the unified bridge + dashboard server:
+  python fleet_dashboard.py
+
+Expected output:
+  [SCHEMA] telemetry table verified ✓
+  [FLEET] Broadcast loop running
+  ┌─────────────────────────────────────────────┐
+  │  PHI-FLEET  ·  Supervisor Dashboard          │
+  │  Local  →  http://localhost:8765             │
+  │  LAN    →  http://192.168.X.X:8765           │
+  │  Share the LAN link with your supervisors    │
+  └─────────────────────────────────────────────┘
+  Uvicorn running on http://0.0.0.0:8765
+
+Open in browser:
+  http://localhost:8765
+
+You should see:
+  ✓ Live telemetry from FG (altitude, airspeed, sink rate, compression)
+  ✓ Flight phase (GROUND, TAKEOFF, CLIMB, etc.)
+  ✓ WOW indicator
+  ✓ Gear command (UP/DOWN)
+  ✓ (If MATLAB is running & landing detected) AI diagnosis + CS-23 status
+  ✓ Health ring (gear condition percentage)
+  ✓ RUL estimate
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  STEP 5: VERIFY FULL DATA FLOW
+═══════════════════════════════════════════════════════════════════════════════
+
+Run these SQL queries in a new psql terminal to confirm data is flowing:
+
+  -- 1. Telemetry from FG (should be increasing at ~20Hz)
+  SELECT COUNT(*) as telemetry_rows FROM telemetry;
+  SELECT MAX(timestamp) as latest_fg_data FROM telemetry;
+
+  -- 2. Gear commands (should be increasing at 2Hz)
+  SELECT COUNT(*) as gear_cmd_rows FROM gear_commands;
+  SELECT DISTINCT command FROM gear_commands;  -- should be "UP" or "DOWN"
+
+  -- 3. Touchdown events (only when you land)
+  SELECT COUNT(*) as landing_events FROM touchdown_events;
+  SELECT * FROM touchdown_events ORDER BY ts DESC LIMIT 3;
+
+  -- 4. MATLAB physics output (only after landing + sim completes)
+  SELECT COUNT(*) as matlab_rows FROM matlab_physics_output;
+  SELECT ready_for_ai, ai_consumed FROM matlab_physics_output ORDER BY ts DESC LIMIT 1;
+
+  -- 5. AI diagnostics (only after MATLAB writes + AI processes)
+  SELECT COUNT(*) as ai_diagnostics FROM flight_diagnostics;
+  SELECT ai_classification, health_factor, severity_level 
+    FROM flight_diagnostics ORDER BY ts DESC LIMIT 1;
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  EXPECTED STARTUP SEQUENCE (in real time)
+═══════════════════════════════════════════════════════════════════════════════
+
+T=0s    FlightGear starts
+T=30s   FG loads, fg_connect.py connects to PostgreSQL
+T=31s   Telemetry starts flowing (20Hz)
+T=32s   phi_fleet_server starts, begins broadcasting to WebSocket
+T=40s   You taxi and take off in FG
+
+        → touchdown_events table gets a row when you land
+        → MATLAB detects it and starts Simscape sim
+        → (5-10 seconds later) MATLAB writes to matlab_physics_output
+        → Python AI reads matlab_physics_output, runs inference
+        → AI writes to flight_diagnostics (ai_classification, health_factor, etc.)
+        → phi_fleet_server broadcasts to browser
+        → Dashboard shows "NORMAL" or damage alert + RUL countdown
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  SHUTDOWN (reverse order)
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. phi_fleet_server  → Ctrl+C in terminal 4
+  2. MATLAB           → Ctrl+C or close MATLAB window
+  3. fg_connect.py    → Ctrl+C in terminal 2
+  4. FlightGear       → Click X or Ctrl+C in terminal 1
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+❌ "column does not exist" in phi_fleet_server
+  → Run: python migrate_schema.py
+  → Or re-run: psql -U postgres -d project_db -f aerotwin_schema.sql
+
+❌ "PermissionError: [WinError 10013]" in fg_connect.py
+  → Port 15000/15001 is in use. Check which process:
+     netstat -ano | findstr ":15000"
+  → Either kill that process or change FG launch flags to different ports
+
+❌ FlightGear doesn't send telemetry (fg_connect shows "Waiting for packets")
+  → Confirm FG launched with --generic flags
+  → Check FG console for "aerotwin_proto" or "connected"
+  → If not, make sure --fg-root points to correct fgdata folder
+
+❌ phi_fleet_server shows "waiting" message, no telemetry on dashboard
+  → Check PostgreSQL has data: psql -U postgres -d project_db -c "SELECT COUNT(*) FROM telemetry;"
+  → If 0, fg_connect.py isn't running or FG isn't sending
+  → If > 0 but dashboard empty, check browser console for WebSocket errors
+
+❌ MATLAB doesn't trigger on landing
+  → Make sure touchdown_events table has rows (land in FG and check)
+  → MATLAB may need the landing to be detected by fg_connect.py first
+  → Check MATLAB console for "polling touchdown_events" messages
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  ARCHITECTURE SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  FlightGear (Do228)                                                          │
+│       ↓ UDP:15000 (20Hz, 16-field CSV)                                       │
+│       ↓                                                                       │
+│  fg_connect.py ◄────── PostgreSQL telemetry table                           │
+│       ↓                                                ↑                      │
+│       → writes touchdown_events                       │ reads telemetry      │
+│       → writes gear_commands (2Hz)                    │ reads flight_diag     │
+│       → via UDP:15001 ← sends gear commands to FG    │ reads matlab_physics  │
+│                                                       │                      │
+│                                                  phi_fleet_server.py         │
+│                                                       ↓                      │
+│  MATLAB (launch_twin.m)                          WebSocket Broadcast        │
+│       ↓ reads touchdown_events                    1Hz to Supervisors        │
+│       ↓ (after landing detected)                  🔴 Live Dashboard        │
+│       → Simscape Prismatic Joint sim                  (browser)              │
+│       → writes matlab_physics_output                                         │
+│       → sets ready_for_ai=TRUE                                              │
+│                                                                              │
+│  Python AI (if separate):                                                    │
+│       ↓ reads matlab_physics_output (ready_for_ai=TRUE)                     │
+│       → CNN-BiLSTM inference                                                │
+│       → CS-23.473 health check                                              │
+│       → writes flight_diagnostics                                           │
+│       → sets ai_consumed=TRUE on matlab_physics_output                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+All arrows → PostgreSQL. All reads/writes are atomic. Handshake flags ensure
+no data is lost: ready_for_ai (MATLAB→AI) and ai_consumed (AI→MATLAB).
+
+
+═══════════════════════════════════════════════════════════════════════════════
+  FILES REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+  aerotwin_schema.sql     ← Run once to set up PostgreSQL schema
+  migrate_schema.py       ← Fix missing columns in existing database
+  fg_connect.py           ← FlightGear ↔ PostgreSQL bridge
+  phi_fleet_server.py     ← WebSocket supervisor dashboard
+  aerotwin_proto.xml      ← FlightGear protocol definition (copy to FG/data/Protocol/)
+  launch_twin.m           ← MATLAB entry point (your Simscape model)
+
+═══════════════════════════════════════════════════════════════════════════════

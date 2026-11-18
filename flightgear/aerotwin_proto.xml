@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<PropertyList>
+ <generic>
+  <output>
+   <line_separator>newline</line_separator>
+   <var_separator>,</var_separator>
+   <chunk><name>sink_rate_fps</name><node>/velocities/vertical-speed-fps</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>mass_lbs</name><node>/fdm/jsbsim/mass</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>nose_steer</name><node>/gear/gear[0]/steer-norm</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>alt_agl_ft</name><node>/position/altitude-agl-ft</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>wow_nose</name><node>/gear/gear[0]/wow</node><type>bool</type><format>%d</format></chunk>
+   <chunk><name>wow_left</name><node>/gear/gear[1]/wow</node><type>bool</type><format>%d</format></chunk>
+   <chunk><name>wow_right</name><node>/gear/gear[2]/wow</node><type>bool</type><format>%d</format></chunk>
+   <chunk><name>compression_ft</name><node>/gear/gear[1]/compression</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>groundspeed_kt</name><node>/velocities/groundspeed-kt</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>prop_rpm</name><node>/engines/engine[0]/rpm</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>engine_torque</name><node>/engines/engine[0]/torque</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>airspeed_kt</name><node>/velocities/airspeed-kt</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>latitude</name><node>/position/latitude-deg</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>longitude</name><node>/position/longitude-deg</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>vsi_fpm</name><node>/velocities/vertical-speed-fps</node><type>double</type><format>%f</format></chunk>
+   <chunk><name>elevator_trim</name><node>/controls/flight/elevator-trim</node><type>double</type><format>%f</format></chunk>
+  </output>
+ </generic>
+</PropertyList>

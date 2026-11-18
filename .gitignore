@@ -1,0 +1,30 @@
+# Environment & local secrets (NEVER commit .env)
+.env
+.env.*
+!.env.example
+
+# Python caches & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+
+# MATLAB / Simulink generated build artifacts
+slprj/
+*.slxc
+*.asv
+*.autosave
+
+# Generated runtime / temporary outputs
+mission_table.csv
+*.log
+
+# OS / IDE metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
